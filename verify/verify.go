@@ -7,8 +7,13 @@ import (
 	"encoding/asn1"
 	"fmt"
 	"io"
+	"io/ioutil"
+	"log"
 	"os"
+	"path/filepath"
 	"reflect"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/digitorus/pdf"
@@ -16,9 +21,6 @@ import (
 
 	"github.com/digitorus/pkcs7"
 	"github.com/digitorus/timestamp"
-
-	"strconv"
-	"strings"
 
 	"golang.org/x/crypto/ocsp"
 )
@@ -77,6 +79,14 @@ func File(file *os.File) (apiResp *Response, err error) {
 	return Reader(file, finfo.Size())
 }
 
+func loadCertFile(roots *x509.CertPool, fname string) error {
+	data, err := ioutil.ReadFile(fname)
+	if err == nil {
+		roots.AppendCertsFromPEM(data)
+	}
+	return err
+}
+
 func Reader(file io.ReaderAt, size int64) (apiResp *Response, err error) {
 	var documentInfo DocumentInfo
 
@@ -128,7 +138,7 @@ func Reader(file io.ReaderAt, size int64) (apiResp *Response, err error) {
 		// digest is computed. (See 7.3.4, â€œString Objectsâ€œ)
 		p7, err := pkcs7.Parse([]byte(v.Key("Contents").RawString()))
 		if err != nil {
-			//fmt.Println(err)
+			// fmt.Println(err)
 			continue
 		}
 
@@ -156,7 +166,7 @@ func Reader(file io.ReaderAt, size int64) (apiResp *Response, err error) {
 		// Signer certificate
 		// http://www.alvestrand.no/objectid/1.2.840.113549.1.9.html
 		// http://www.alvestrand.no/objectid/1.2.840.113583.1.1.8.html
-		//var isn []byte
+		// var isn []byte
 		for _, s := range p7.Signers {
 			//isn = s.IssuerAndSerialNumber.IssuerName.FullBytes
 			//for _, a := range s.AuthenticatedAttributes {
@@ -168,10 +178,10 @@ func Reader(file io.ReaderAt, size int64) (apiResp *Response, err error) {
 			// Timestamp
 			// 1.2.840.113549.1.9.16.2.14 - RFC 3161 id-aa-timeStampToken
 			for _, attr := range s.UnauthenticatedAttributes {
-				//fmt.Printf("U: %v, %#v\n", s.IssuerAndSerialNumber.SerialNumber, attr.Type)
+				// fmt.Printf("U: %v, %#v\n", s.IssuerAndSerialNumber.SerialNumber, attr.Type)
 
 				if attr.Type.Equal(asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 9, 16, 2, 14}) {
-					//fmt.Println("Found timestamp")
+					// fmt.Println("Found timestamp")
 
 					signer.TimeStamp, err = timestamp.Parse(attr.Value.Bytes)
 					if err != nil {
@@ -200,13 +210,42 @@ func Reader(file io.ReaderAt, size int64) (apiResp *Response, err error) {
 		}
 
 		// Directory of certificates, including OCSP
-		certPool := x509.NewCertPool()
+		certPool, err := x509.SystemCertPool()
+		if err != nil {
+			fmt.Printf("failed to get system cert pool %v", err)
+			certPool = x509.NewCertPool()
+		}
+
+		certsDir := os.Getenv("VERISIGN_CERTS_DIR")
+		if len(certsDir) == 0 {
+			certsDir = `/Users/brunoanjos/git/go-backend/lib/technical/trustlists/certs`
+		}
+
+		entries, err := os.ReadDir(certsDir)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		for _, e := range entries {
+			fName := filepath.Join(certsDir, e.Name())
+			err = loadCertFile(certPool, fName)
+			if err != nil {
+				fmt.Printf("failed to load cert to pool %v", err)
+			}
+		}
+
 		for _, cert := range p7.Certificates {
 			certPool.AddCert(cert)
 		}
 
+		if signer.TimeStamp == nil {
+			err = p7.VerifyWithChain(certPool)
+		} else {
+			signTime := signer.TimeStamp.Time
+			err = p7.VerifyWithChainAtTime(certPool, signTime)
+		}
+
 		// Verify the digital signature of the pdf file.
-		err = p7.VerifyWithChain(certPool)
 		if err != nil {
 			err = p7.Verify()
 			if err == nil {
@@ -225,7 +264,7 @@ func Reader(file io.ReaderAt, size int64) (apiResp *Response, err error) {
 		_ = p7.UnmarshalSignedAttribute(asn1.ObjectIdentifier{1, 2, 840, 113583, 1, 1, 8}, &revInfo)
 
 		// Parse OCSP response
-		var ocspStatus = make(map[string]*ocsp.Response)
+		ocspStatus := make(map[string]*ocsp.Response)
 		for _, o := range revInfo.OCSP {
 			resp, err := ocsp.ParseResponse(o.FullBytes, nil)
 			if err != nil {
@@ -246,7 +285,6 @@ func Reader(file io.ReaderAt, size int64) (apiResp *Response, err error) {
 				CurrentTime:   cert.NotBefore,
 				KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
 			})
-
 			if err != nil {
 				c.VerifyError = err.Error()
 			}
@@ -316,7 +354,7 @@ func Reader(file io.ReaderAt, size int64) (apiResp *Response, err error) {
 		// If SubFilter is adbe.pkcs7.detached or adbe.pkcs7.sha1, this entry
 		// shall not be used, and the certificate chain shall be put in the PKCS#7
 		// envelope in Contents.
-		//v.Key("Cert").Text()
+		// v.Key("Cert").Text()
 
 		apiResp.Signers = append(apiResp.Signers, signer)
 	}
@@ -332,8 +370,10 @@ func Reader(file io.ReaderAt, size int64) (apiResp *Response, err error) {
 
 // parseDocumentInfo parses document information
 func parseDocumentInfo(v pdf.Value, documentInfo *DocumentInfo) {
-	keys := []string{"Author", "CreationDate", "Creator", "Hash", "Keywords", "ModDate",
-		"Name", "Pages", "Permission", "Producer", "Subject", "Title"}
+	keys := []string{
+		"Author", "CreationDate", "Creator", "Hash", "Keywords", "ModDate",
+		"Name", "Pages", "Permission", "Producer", "Subject", "Title",
+	}
 
 	for _, key := range keys {
 		value := v.Key(key)
