@@ -201,12 +201,7 @@ func Reader(file io.ReaderAt, size int64) (apiResp *Response, err error) {
 		}
 
 		// Directory of certificates, including OCSP
-		certPool, err := x509.SystemCertPool()
-		if err != nil {
-			fmt.Printf("failed to get system cert pool %v", err)
-
-			certPool = x509.NewCertPool()
-		}
+		certPool := x509.NewCertPool()
 
 		for _, cert := range p7.Certificates {
 			certPool.AddCert(cert)
