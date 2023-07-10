@@ -8,9 +8,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 	"os"
-	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
@@ -72,6 +70,7 @@ type DocumentInfo struct {
 
 func File(file *os.File) (apiResp *Response, err error) {
 	finfo, _ := file.Stat()
+
 	if _, err := file.Seek(0, 0); err != nil {
 		return nil, err
 	}
@@ -84,6 +83,7 @@ func loadCertFile(roots *x509.CertPool, fname string) error {
 	if err == nil {
 		roots.AppendCertsFromPEM(data)
 	}
+
 	return err
 }
 
@@ -96,6 +96,7 @@ func Reader(file io.ReaderAt, size int64) (apiResp *Response, err error) {
 			err = fmt.Errorf("Failed to verify file (%v)", r)
 		}
 	}()
+
 	apiResp = &Response{}
 
 	rdr, err := pdf.NewReader(file, size)
@@ -155,7 +156,9 @@ func Reader(file io.ReaderAt, size int64) (apiResp *Response, err error) {
 			// This content will be hashed with the corresponding algorithm to
 			// verify the signature.
 
-			content, err := io.ReadAll(io.NewSectionReader(file, v.Key("ByteRange").Index(i-1).Int64(), v.Key("ByteRange").Index(i).Int64()))
+			content, err := io.ReadAll(
+				io.NewSectionReader(file, v.Key("ByteRange").Index(i-1).Int64(), v.Key("ByteRange").Index(i).Int64()),
+			)
 			if err != nil {
 				apiResp.Error = fmt.Sprintln("Failed to get ByteRange:", i, err)
 			}
@@ -172,17 +175,14 @@ func Reader(file io.ReaderAt, size int64) (apiResp *Response, err error) {
 			//for _, a := range s.AuthenticatedAttributes {
 			//fmt.Printf("A: %v, %#v\n", s.IssuerAndSerialNumber.SerialNumber, a.Type)
 			//}
-
 			// Timestamp
 			// http://www.alvestrand.no/objectid/1.2.840.113549.1.9.16.2.14.html
 			// Timestamp
 			// 1.2.840.113549.1.9.16.2.14 - RFC 3161 id-aa-timeStampToken
 			for _, attr := range s.UnauthenticatedAttributes {
 				// fmt.Printf("U: %v, %#v\n", s.IssuerAndSerialNumber.SerialNumber, attr.Type)
-
 				if attr.Type.Equal(asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 9, 16, 2, 14}) {
 					// fmt.Println("Found timestamp")
-
 					signer.TimeStamp, err = timestamp.Parse(attr.Value.Bytes)
 					if err != nil {
 						apiResp.Error = fmt.Sprintln("Failed to parse timestamp", err)
@@ -190,6 +190,7 @@ func Reader(file io.ReaderAt, size int64) (apiResp *Response, err error) {
 						r := bytes.NewReader(s.EncryptedDigest)
 						h := crypto.SHA256.New()
 						b := make([]byte, 32)
+
 						for {
 							n, err := r.Read(b)
 							if err == io.EOF {
@@ -213,25 +214,8 @@ func Reader(file io.ReaderAt, size int64) (apiResp *Response, err error) {
 		certPool, err := x509.SystemCertPool()
 		if err != nil {
 			fmt.Printf("failed to get system cert pool %v", err)
+
 			certPool = x509.NewCertPool()
-		}
-
-		certsDir := os.Getenv("VERISIGN_CERTS_DIR")
-		if len(certsDir) == 0 {
-			certsDir = `/Users/brunoanjos/git/go-backend/lib/technical/trustlists/certs`
-		}
-
-		entries, err := os.ReadDir(certsDir)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		for _, e := range entries {
-			fName := filepath.Join(certsDir, e.Name())
-			err = loadCertFile(certPool, fName)
-			if err != nil {
-				fmt.Printf("failed to load cert to pool %v", err)
-			}
 		}
 
 		for _, cert := range p7.Certificates {
@@ -265,6 +249,7 @@ func Reader(file io.ReaderAt, size int64) (apiResp *Response, err error) {
 
 		// Parse OCSP response
 		ocspStatus := make(map[string]*ocsp.Response)
+
 		for _, o := range revInfo.OCSP {
 			resp, err := ocsp.ParseResponse(o.FullBytes, nil)
 			if err != nil {
@@ -419,7 +404,6 @@ func parseDate(v string) (time.Time, error) {
 	// O is the relationship of local time to Universal Time (UT), denoted by one of the characters +, -, or Z (see below)
 	// HH followed by ' is the absolute value of the offset from UT in hours (00-23)
 	// mm followed by ' is the absolute value of the offset from UT in minutes (00-59)
-
 	// 2006-01-02T15:04:05Z07:00
 	// (D:YYYYMMDDHHmmSSOHH'mm')
 	return time.Parse("D:20060102150405Z07'00'", v)
