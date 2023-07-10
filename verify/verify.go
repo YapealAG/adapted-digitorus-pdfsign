@@ -7,7 +7,6 @@ import (
 	"encoding/asn1"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"reflect"
 	"strconv"
@@ -76,15 +75,6 @@ func File(file *os.File) (apiResp *Response, err error) {
 	}
 
 	return Reader(file, finfo.Size())
-}
-
-func loadCertFile(roots *x509.CertPool, fname string) error {
-	data, err := ioutil.ReadFile(fname)
-	if err == nil {
-		roots.AppendCertsFromPEM(data)
-	}
-
-	return err
 }
 
 func Reader(file io.ReaderAt, size int64) (apiResp *Response, err error) {
