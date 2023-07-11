@@ -85,14 +85,32 @@ func Reader(
 	err error,
 ) {
 	certPool := x509.NewCertPool()
-	return ReaderWithPool(
+	return ReaderWithCertPool(
 		file,
 		size,
 		certPool,
 	)
 }
 
-func ReaderWithPool(
+func ReaderWithSystemCertPool(
+	file io.ReaderAt,
+	size int64,
+) (
+	apiResp *Response,
+	err error,
+) {
+	certPool, err := x509.SystemCertPool()
+	if err != nil {
+		return nil, err
+	}
+	return ReaderWithCertPool(
+		file,
+		size,
+		certPool,
+	)
+}
+
+func ReaderWithCertPool(
 	file io.ReaderAt,
 	size int64,
 	certPool *x509.CertPool,
