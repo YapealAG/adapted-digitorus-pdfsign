@@ -77,7 +77,47 @@ func File(file *os.File) (apiResp *Response, err error) {
 	return Reader(file, finfo.Size())
 }
 
-func Reader(file io.ReaderAt, size int64) (apiResp *Response, err error) {
+func Reader(
+	file io.ReaderAt,
+	size int64,
+) (
+	apiResp *Response,
+	err error,
+) {
+	certPool := x509.NewCertPool()
+	return ReaderWithCertPool(
+		file,
+		size,
+		certPool,
+	)
+}
+
+func ReaderWithSystemCertPool(
+	file io.ReaderAt,
+	size int64,
+) (
+	apiResp *Response,
+	err error,
+) {
+	certPool, err := x509.SystemCertPool()
+	if err != nil {
+		return nil, err
+	}
+	return ReaderWithCertPool(
+		file,
+		size,
+		certPool,
+	)
+}
+
+func ReaderWithCertPool(
+	file io.ReaderAt,
+	size int64,
+	certPool *x509.CertPool,
+) (
+	apiResp *Response,
+	err error,
+) {
 	var documentInfo DocumentInfo
 
 	defer func() {
@@ -199,9 +239,6 @@ func Reader(file io.ReaderAt, size int64) (apiResp *Response, err error) {
 				}
 			}
 		}
-
-		// Directory of certificates, including OCSP
-		certPool := x509.NewCertPool()
 
 		for _, cert := range p7.Certificates {
 			certPool.AddCert(cert)
