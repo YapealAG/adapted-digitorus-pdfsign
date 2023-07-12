@@ -84,11 +84,10 @@ func Reader(
 	apiResp *Response,
 	err error,
 ) {
-	certPool := x509.NewCertPool()
-	return ReaderWithCertPool(
+	return ReaderWithRootPool(
 		file,
 		size,
-		certPool,
+		nil,
 	)
 }
 
@@ -99,21 +98,21 @@ func ReaderWithSystemCertPool(
 	apiResp *Response,
 	err error,
 ) {
-	certPool, err := x509.SystemCertPool()
+	rootPool, err := x509.SystemCertPool()
 	if err != nil {
 		return nil, err
 	}
-	return ReaderWithCertPool(
+	return ReaderWithRootPool(
 		file,
 		size,
-		certPool,
+		rootPool,
 	)
 }
 
-func ReaderWithCertPool(
+func ReaderWithRootPool(
 	file io.ReaderAt,
 	size int64,
-	certPool *x509.CertPool,
+	rootPool *x509.CertPool,
 ) (
 	apiResp *Response,
 	err error,
@@ -240,6 +239,7 @@ func ReaderWithCertPool(
 			}
 		}
 
+		certPool := x509.NewCertPool()
 		for _, cert := range p7.Certificates {
 			certPool.AddCert(cert)
 		}
@@ -288,6 +288,7 @@ func ReaderWithCertPool(
 			c.Certificate = cert
 
 			chain, err := cert.Verify(x509.VerifyOptions{
+				Roots:         rootPool,
 				Intermediates: certPool,
 				CurrentTime:   cert.NotBefore,
 				KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
