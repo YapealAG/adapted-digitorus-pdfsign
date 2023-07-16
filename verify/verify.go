@@ -192,10 +192,11 @@ func ReaderWithRootPool(
 			SubFilter:   v.Key("SubFilter").String(),
 		}
 
+		var processError error
 		switch signer.SubFilter {
 		case subFilterETISRFC3161:
 			// parse timestamp
-			err = processRFC3161(
+			processError = processRFC3161(
 				&signer,
 				contentInRange,
 				v,
@@ -203,7 +204,7 @@ func ReaderWithRootPool(
 			)
 		case subFilterETSICAdES:
 			// parse pkcs7
-			err = processCAdES(
+			processError = processCAdES(
 				&signer,
 				contentInRange,
 				v,
@@ -213,8 +214,8 @@ func ReaderWithRootPool(
 			err = fmt.Errorf("unknown SubFilter %v", signer.SubFilter)
 		}
 
-		if err != nil {
-			apiResp.Error = err.Error()
+		if processError != nil {
+			apiResp.Error = processError.Error()
 		}
 		apiResp.Signers = append(apiResp.Signers, signer)
 	}
@@ -242,7 +243,30 @@ func processRFC3161(
 		return
 	}
 
-	_ = ts
+	certPool := x509.NewCertPool()
+	for _, cert := range ts.Certificates {
+		certPool.AddCert(cert)
+	}
+
+	signer.TrustedIssuer = true
+	for _, cert := range ts.Certificates {
+		var c Certificate
+		c.Certificate = cert
+		signer.Certificates = append(signer.Certificates, c)
+
+		opts := x509.VerifyOptions{
+			Roots:         rootPool,
+			Intermediates: certPool,
+		}
+
+		_, err = cert.Verify(opts)
+		if err != nil {
+			c.VerifyError = err.Error()
+			signer.TrustedIssuer = false
+			break
+		}
+	}
+
 	return
 }
 
@@ -333,7 +357,6 @@ func processCAdES(
 			signer.TrustedIssuer = false
 		} else {
 			err = fmt.Errorf("Failed to verify signature: %v", err)
-			return
 		}
 	} else {
 		signer.ValidSignature = true
@@ -373,7 +396,6 @@ func processCAdES(
 		})
 		if err != nil {
 			c.VerifyError = err.Error()
-			return
 		}
 
 		if resp, ok := ocspStatus[fmt.Sprintf("%x", cert.SerialNumber)]; ok {
@@ -390,14 +412,12 @@ func processCAdES(
 					err = resp.Certificate.CheckSignatureFrom(issuer)
 					if err != nil {
 						err = fmt.Errorf("OCSP signing certificate not from certificate issuer: %v", err)
-						return
 					}
 				} else {
 					// CA Signed response
 					err = resp.CheckSignatureFrom(issuer)
 					if err != nil {
 						err = fmt.Errorf("Failed to verify OCSP response signature: %v", err)
-						return
 					}
 				}
 			}
