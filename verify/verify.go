@@ -267,6 +267,9 @@ func processRFC3161(
 		}
 	}
 
+	// TODO verify signature
+
+	signer.TimeStamp = ts
 	return
 }
 
